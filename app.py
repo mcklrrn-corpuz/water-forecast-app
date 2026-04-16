@@ -37,7 +37,7 @@ Select a model to generate forecasts:
 
 model_choice = st.selectbox(
     "Choose Model",
-    ["GRU + Attention (Premium)", "LSTM (Baseline)"]
+    ["LSTM (Baseline), GRU + Attention (Premium)"]
 )
 
 if "GRU" in model_choice:
