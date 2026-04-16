@@ -2,19 +2,19 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from tensorflow.keras.models import load_model
+import onnxruntime as ort
 
 # -----------------------------
 # LOAD ARTIFACTS
 # -----------------------------
 @st.cache_resource
 def load_all():
-    model = load_model("model.keras")
+    session = ort.InferenceSession("model.onnx")
     scaler = joblib.load("scaler.pkl")
     df = pd.read_csv("historical_data.csv", index_col=0, parse_dates=True)
-    return model, scaler, df
+    return session, scaler, df
 
-model, scaler, df_filled = load_all()
+session, scaler, df_filled = load_all()
 
 FEATURES = ['discharge','pH','conductance','temp','do']
 SEQ_LEN = 120
@@ -24,19 +24,22 @@ HORIZON = 30
 # UI
 # -----------------------------
 st.title("Water Quality Forecast (30 Days)")
-st.write("Model: GRU + Attention (direct multi-step)")
+st.write("Model: GRU + Attention (ONNX Deployment)")
 
 feature = st.selectbox("Select parameter", FEATURES)
 
 # -----------------------------
 # FORECAST FUNCTION
 # -----------------------------
-def forecast_30_days(df, model, scaler):
+def forecast_30_days(df, session, scaler):
     last_120 = df[FEATURES].iloc[-SEQ_LEN:]
     last_scaled = scaler.transform(last_120)
 
-    X_input = last_scaled.reshape(1, SEQ_LEN, len(FEATURES))
-    future_scaled = model.predict(X_input, verbose=0)
+    X_input = last_scaled.reshape(1, SEQ_LEN, len(FEATURES)).astype(np.float32)
+
+    # ONNX inference
+    outputs = session.run(None, {"input": X_input})
+    future_scaled = outputs[0]
 
     future_2d = future_scaled.reshape(-1, len(FEATURES))
     future_actual = scaler.inverse_transform(future_2d)
@@ -51,13 +54,14 @@ def forecast_30_days(df, model, scaler):
         index=future_dates,
         columns=FEATURES
     )
+
     return forecast_df
 
 # -----------------------------
 # RUN
 # -----------------------------
 if st.button("Generate 30-Day Forecast"):
-    forecast_df = forecast_30_days(df_filled, model, scaler)
+    forecast_df = forecast_30_days(df_filled, session, scaler)
 
     st.subheader("Forecast Table")
     st.dataframe(forecast_df)
