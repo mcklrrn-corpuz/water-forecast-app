@@ -15,7 +15,13 @@ def load_all():
 
 session_gru, session_lstm, scaler, df_filled = load_all()
 
-FEATURES = ['discharge','pH','conductance','temp','do']
+FEATURES = [
+ 'discharge',
+ 'pH',
+ 'conductance',
+ 'water_temperature',
+ 'dissolved_oxygen'
+]
 SEQ_LEN = 120
 HORIZON = 30
 
