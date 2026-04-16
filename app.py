@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import plotly.graph_objects as go
 import onnxruntime as ort
 
 # -----------------------------
@@ -42,7 +43,7 @@ Select a model:
 
 model_choice = st.selectbox(
     "Choose Model",
-    ["GRU + Attention (Premium)", "LSTM (Baseline)"]
+    ["LSTM (Baseline)", "GRU + Attention (Premium)"]
 )
 
 if "GRU" in model_choice:
@@ -162,11 +163,48 @@ if st.button("Generate 30-Day Forecast"):
     st.subheader(f"{feature} (History vs Forecast)")
 
     if feature == "WQI":
-        chart_df = pd.concat([
-            hist['WQI'][-60:].rename("History"),
-            forecast_df['WQI'].rename("Forecast")
-        ])
-        st.line_chart(chart_df)
+
+        fig = go.Figure()
+
+        # HISTORY
+        hist_wqi = hist['WQI'][-60:]
+
+        fig.add_trace(go.Scatter(
+            x=hist_wqi.index,
+            y=hist_wqi,
+            mode='lines',
+            name='History',
+            hovertemplate=
+            "Date: %{x}<br>" +
+            "WQI: %{y:.2f}<br>" +
+            "Status: %{customdata}",
+            customdata=[classify_wqi(v) for v in hist_wqi]
+        ))
+
+        # FORECAST
+        forecast_wqi = forecast_df['WQI']
+
+        fig.add_trace(go.Scatter(
+            x=forecast_wqi.index,
+            y=forecast_wqi,
+            mode='lines',
+            name='Forecast',
+            line=dict(dash='dash'),
+            hovertemplate=
+            "Date: %{x}<br>" +
+            "WQI: %{y:.2f}<br>" +
+            "Status: %{customdata}",
+            customdata=[classify_wqi(v) for v in forecast_wqi]
+        ))
+
+        fig.update_layout(
+            title="WQI (History vs Forecast)",
+            xaxis_title="Date",
+            yaxis_title="WQI",
+            hovermode="x unified"
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         chart_df = pd.concat([
