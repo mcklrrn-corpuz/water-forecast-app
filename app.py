@@ -13,7 +13,6 @@ def load_all():
     session_lstm = ort.InferenceSession("lstm_model.onnx")
     scaler = joblib.load("scaler.pkl")
     df = pd.read_csv("historical_data.csv", index_col=0, parse_dates=True)
-
     return session_gru, session_lstm, scaler, df
 
 session_gru, session_lstm, scaler, df_filled = load_all()
@@ -35,7 +34,7 @@ HORIZON = 30
 st.title("Water Quality Forecast (30 Days)")
 
 st.markdown("""
-Select a model to generate forecasts:
+Select a model:
 
 - **LSTM (Baseline)** — stable predictions  
 - **GRU + Attention (Premium)** — improved accuracy  
@@ -51,10 +50,10 @@ if "GRU" in model_choice:
 else:
     st.info("Baseline model selected: simpler and stable predictions.")
 
-feature = st.selectbox("Select parameter", FEATURES)
+feature = st.selectbox("Select parameter", FEATURES + ["WQI"])
 
 # -----------------------------
-# WQI FUNCTION
+# WQI FUNCTION (FIXED)
 # -----------------------------
 def compute_wqi(df):
     weights = {
@@ -70,12 +69,22 @@ def compute_wqi(df):
     q['pH'] = 100 - abs(df['pH'] - 7) * 20
     q['dissolved_oxygen'] = df['dissolved_oxygen'] * 10
     q['water_temperature'] = 100 - abs(df['water_temperature'] - 25) * 2
-    q['conductance'] = 100 - (df['conductance'] / df['conductance'].max()) * 100
-    q['discharge'] = 100 - (df['discharge'] / df['discharge'].max()) * 100
+
+    cond_max = df['conductance'].max()
+    dis_max  = df['discharge'].max()
+
+    cond_max = cond_max if cond_max > 0 else 1
+    dis_max  = dis_max if dis_max > 0 else 1
+
+    q['conductance'] = 100 - (df['conductance'] / cond_max) * 100
+    q['discharge']   = 100 - (df['discharge'] / dis_max) * 100
 
     q = q.clip(0, 100)
+    q = q.replace([np.inf, -np.inf], np.nan)
+    q = q.fillna(0)
 
     wqi = sum(q[col] * weights[col] for col in weights) / sum(weights.values())
+
     return wqi
 
 def classify_wqi(wqi):
@@ -96,7 +105,7 @@ def classify_wqi(wqi):
 def forecast_30_days(df, session, scaler):
     last_120 = df[FEATURES].iloc[-SEQ_LEN:]
 
-    # 🔥 FIX: avoid feature name mismatch
+    # FIX scaler issue
     last_scaled = scaler.transform(last_120.values)
 
     X_input = last_scaled.reshape(1, SEQ_LEN, len(FEATURES)).astype(np.float32)
@@ -123,7 +132,6 @@ def forecast_30_days(df, session, scaler):
 # -----------------------------
 if st.button("Generate 30-Day Forecast"):
 
-    # select model
     if "GRU" in model_choice:
         session = session_gru
         model_label = "GRU + Attention (Premium)"
@@ -135,38 +143,44 @@ if st.button("Generate 30-Day Forecast"):
         forecast_df = forecast_30_days(df_filled, session, scaler)
 
     # -----------------------------
-    # ADD WQI
+    # COMPUTE WQI
     # -----------------------------
     forecast_df['WQI'] = compute_wqi(forecast_df)
 
+    hist = df_filled.copy()
+    hist['WQI'] = compute_wqi(hist)
+
     # -----------------------------
-    # DISPLAY TABLE
+    # TABLE
     # -----------------------------
     st.subheader(f"Forecast Table — {model_label}")
     st.dataframe(forecast_df)
 
     # -----------------------------
-    # PARAMETER GRAPH
+    # GRAPH
     # -----------------------------
     st.subheader(f"{feature} (History vs Forecast)")
-    hist = df_filled[-60:]
 
-    chart_df = pd.concat([
-        hist[[feature]].rename(columns={feature: "History"}),
-        forecast_df[[feature]].rename(columns={feature: "Forecast"})
-    ])
+    if feature == "WQI":
+        chart_df = pd.concat([
+            hist['WQI'][-60:].rename("History"),
+            forecast_df['WQI'].rename("Forecast")
+        ])
+        st.line_chart(chart_df)
 
-    st.line_chart(chart_df)
+    else:
+        chart_df = pd.concat([
+            hist[[feature]].rename(columns={feature: "History"}),
+            forecast_df[[feature]].rename(columns={feature: "Forecast"})
+        ])
+        st.line_chart(chart_df)
 
     # -----------------------------
-    # WQI GRAPH
+    # WQI SUMMARY
     # -----------------------------
-    st.subheader("Water Quality Index (WQI)")
-    st.line_chart(forecast_df['WQI'])
+    st.subheader("Water Quality Index Summary")
 
-    # -----------------------------
-    # WQI INTERPRETATION
-    # -----------------------------
     latest_wqi = forecast_df['WQI'].iloc[-1]
+
     st.write(f"Latest WQI: {latest_wqi:.2f}")
     st.write("Water Quality Status:", classify_wqi(latest_wqi))
