@@ -50,8 +50,9 @@ feature = st.selectbox("Select parameter", FEATURES)
 # FORECAST FUNCTION
 def forecast_30_days(df, session, scaler):
     last_120 = df[FEATURES].iloc[-SEQ_LEN:]
-    last_scaled = scaler.transform(last_120.values)    
-    
+
+    last_scaled = scaler.transform(last_120.values)
+
     X_input = last_scaled.reshape(1, SEQ_LEN, len(FEATURES)).astype(np.float32)
 
     outputs = session.run(None, {"input": X_input})
@@ -65,13 +66,11 @@ def forecast_30_days(df, session, scaler):
         periods=HORIZON
     )
 
-    forecast_df = pd.DataFrame(
+    return pd.DataFrame(
         future_actual,
         index=future_dates,
         columns=FEATURES
     )
-
-    return forecast_df
 
 # RUN
 if st.button("Generate 30-Day Forecast"):
